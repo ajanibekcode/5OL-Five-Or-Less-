@@ -1,4 +1,4 @@
-import pygame, random, sys, openai
+import pygame, random, sys, openai, textwrap
 from utils import create_deck, distribute_cards
 
 pygame.init()
@@ -228,7 +228,7 @@ def update_llm_cards():
 # Create an instance of LLM_player for "GPT".
 llm_player = LLM_player(API_KEY)
 # Create a very small font for displaying CoT reasoning.
-cot_font = pygame.font.Font("Minecraft.ttf", 12)
+cot_font = pygame.font.Font("Minecraft.ttf", 15)
 
 # --- Pygame Setup ---
 WIDTH, HEIGHT = 1200, 800
@@ -284,7 +284,7 @@ clock = pygame.time.Clock()
 running = True
 
 button_width, button_height = 100, 40
-button_x = player_positions[user][0] + 60 
+button_x = player_positions[user][0] + 80 
 button_y = player_positions[user][1] - 20
 play_button_rect = pygame.Rect(button_x, button_y, button_width, button_height)
 call_button_rect = pygame.Rect(button_x + button_width + 10, button_y, button_width, button_height)
@@ -549,7 +549,7 @@ while running:
     
     for name, pos in player_positions.items():
         circle_color = YELLOW if name == turn_order[current_turn_index] else WHITE
-        pygame.draw.circle(screen, circle_color, pos, 40)
+        pygame.draw.circle(screen, circle_color, pos, 55)
         ts = font.render(name, True, BLACK)
         tr = ts.get_rect(center=pos)
         screen.blit(ts, tr)
@@ -563,17 +563,17 @@ while running:
             dr = dt.get_rect(center=(pos[0] + offset[0], pos[1] + offset[1]))
             screen.blit(dt, dr)
     
-    for name in ["GTO", "GPT"]:
+    for name in [user, "GTO", "GPT"]:
         count = len(player_hands[name])
         ts = font_small.render(f"#: {count} cards", True, WHITE)
         pos = player_positions[name]
-        tr = ts.get_rect(center=(pos[0], pos[1] + 60))
+        tr = ts.get_rect(center=(pos[0], pos[1] + 80))
         screen.blit(ts, tr)
     
-    user_count = len(player_hands[user])
-    user_count_text = font_small.render(f"#: {user_count} cards", True, WHITE)
-    user_count_rect = user_count_text.get_rect(topleft=(10, HEIGHT - 40))
-    screen.blit(user_count_text, user_count_rect)
+    # user_count = len(player_hands[user])
+    # user_count_text = font_small.render(f"#: {user_count} cards", True, WHITE)
+    # user_count_rect = user_count_text.get_rect(center=(10, HEIGHT - 40))
+    # screen.blit(user_count_text, user_count_rect)
     
     x_offset = WIDTH // 2 - (len(user_hand) * (card_w + 5)) // 2
     y_position = HEIGHT - 250
@@ -606,20 +606,20 @@ while running:
     # Display GPT's chain-of-thought reasoning under its circle,
     # but only after both other players have made their call decision.
     if last_claimant == "GPT" and call_resolved_time is not None:
-        # Display reasoning below GPT's circle, even lower.
         pos = player_positions["GPT"]
-        cot_x = pos[0]
-        cot_y = pos[1] + 80  # Increased offset (80 pixels below)
+        # Adjust the x-coordinate: subtract an offset (e.g., 150 pixels) to move text left.
+        cot_x = pos[0] - 150  
+        cot_y = pos[1] + 80  # Starting y-coordinate for the CoT text
+        max_chars_per_line = 30  # Adjust this value as needed
+
         for line in llm_cot_reasoning_global.split("\n"):
-            # Ensure the text is white.
-            line_surface = cot_font.render(line, True, WHITE)
-            line_rect = line_surface.get_rect(center=(cot_x, cot_y))
-            # If the line runs too far, wrap it (simple approach: truncate)
-            if line_rect.width > 200:
-                line_surface = cot_font.render(line[:30] + "...", True, WHITE)
-                line_rect = line_surface.get_rect(center=(cot_x, cot_y))
-            screen.blit(line_surface, line_rect)
-            cot_y += line_rect.height + 2
+            wrapped_lines = textwrap.wrap(line, width=max_chars_per_line)
+            for wrapped_line in wrapped_lines:
+                line_surface = cot_font.render(wrapped_line, True, WHITE)
+                # Use 'topleft' instead of 'center' to left-align the text
+                line_rect = line_surface.get_rect(topleft=(cot_x, cot_y))
+                screen.blit(line_surface, line_rect)
+                cot_y += line_rect.height + 2
 
     if not call_phase and turn_order[current_turn_index] == user:
         draw_button(play_button_rect, "Play", play_pressed_time)
