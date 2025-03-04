@@ -14,8 +14,8 @@ class LLM_player:
         self.cards = cards
         self.api_key = api_key
         self.initial_prompt = """
-You are an AI that play the game card game BS. In this game there are 7 cards (A, 2, 3, 4, 5, 6, 7), 3 players including you (P1, P2, P3), you are P1, there are only 6 cards of each type, cards are randomly distributed and each player gets the same amount of cards.
-You are P1. The game is as follows:
+You are an AI that play the game card game BS. In this game there are 7 cards (A, 2, 3, 4, 5, 6, 7), 3 players including you (GPT, GTO, User), you are GPT, there are only 6 cards of each type, cards are randomly distributed and each player gets the same amount of cards.
+You are GPT. The game is as follows:
 - Each turn has a specific card type, for example, A.
 - Players take turns to place however many cards they want, face down (other players cannot see them).
 - They can lie and say the cards they played is the type of the turn but it might not be. For example, if the turn was A, he could lie and place 3 cards of type 2 or tell the truth and play 1 of A.
@@ -51,72 +51,72 @@ Answer in the format:
 Use the examples provided below.
 Q1: Is not your turn. Your available cards are {'A': 2, 2: 0, 3: 1, 4: 0, 5: 3, 6: 1, 7: 4}
 
-  P2 Information:
+  GTO Information:
     Total cards: 13
     Bluffed times: 2
     Honest: 1
 
-  P3 Information:
+  User Information:
     Total cards: 18
     Bluffed times: 0
     Honest: 3
 
-  Round card type is 4, P2 claims to have 3 cards of type 4.
+  Round card type is 4, GTO claims to have 3 cards of type 4.
 A1:
-  Step 1: P2 has bluffed more times than he has being honest.
-  Step 2: P2 still has 13 cards, he could have 3 cards of type 4.
+  Step 1: GTO has bluffed more times than he has being honest.
+  Step 2: GTO still has 13 cards, he could have 3 cards of type 4.
   Step 3: I do not have any cards of type 4, is probable that he has 3.
   Step 4: It is probable for him those cards.
   Answer: check
 
 Q2: Is not your turn. Your available cards are {'A': 4, 2: 0, 3: 1, 4: 0, 5: 3, 6: 1, 7: 4}
 
-  P2 Information:
+  GTO Information:
     Total cards: 20
     Bluffed times: 2
     Honest: 1
 
-  P3 Information:
+  User Information:
     Total cards: 10
     Bluffed times: 3
     Honest: 3
 
-  Round card type is A, P3 claims to have 3 cards of type A.
+  Round card type is A, User claims to have 3 cards of type A.
 A2:
-  Step 1: P3 has not bluffed more than he has being honest.
-  Step 2: P3 still has 10 cards, he could have 3 cards of type A.
+  Step 1: User has not bluffed more than he has being honest.
+  Step 2: User still has 10 cards, he could have 3 cards of type A.
   Step 3: I have 4 cards of type A, is not probable for him to have 3 cards of type A.
   Step 4: 3 + 4 = 7, maximum amount the cards is 6.
   Answer: bluff
 
 Q3: Is not your turn. Your available cards are {'A': 4, 2: 4, 3: 1, 4: 0, 5: 1, 6: 1, 7: 5}
 
-  P2 Information:
+  GTO Information:
     Total cards: 16
     Bluffed times: 10
     Honest: 1
 
-  P3 Information:
+  User Information:
     Total cards: 10
     Bluffed times: 11
     Honest: 0
 
-  Round card type is 7, P3 claims to have 1 card of type 7.
+  Round card type is 7, User claims to have 1 card of type 7.
 A3:
-  Step 1: P3 has only bluffed.
-  Step 2: P3 still has 16 cards, he could have 1 cards of type A.
+  Step 1: User has only bluffed.
+  Step 2: User still has 16 cards, he could have 1 cards of type A.
   Step 3: I have 5 cards of type A, is possible for him to have 1 card of type A.
   Step 4: He has only bluffed, he must be bluffing again.
   Answer: bluff
 
 Q4: Is your turn. Your available cards are {'A': 3, 2: 2, 3: 1, 4: 2, 5: 1, 6: 1, 7: 2}
 
-  P2 Information:
+  GTO Information:
     Total cards: 6
     Bluffed times: 10
     Honest: 1
 
-  P3 Information:
+  User Information:
     Total cards: 24
     Bluffed times: 0
     Honest: 11
@@ -125,18 +125,18 @@ Q4: Is your turn. Your available cards are {'A': 3, 2: 2, 3: 1, 4: 2, 5: 1, 6: 1
 A4:
   Step 1: I have 3 + 2 + 1 + 2 + 1 + 2 = 12 cards.
   Step 2: I do not have a large amount of type 2 cards.
-  Step 3: P2 is close to win.
+  Step 3: GTO is close to win.
   Step 4: I need to bluff to get rid of cards.
   Answer: 4 bluff
 
 Q5: Is your turn. Your available cards are {'A': 0, 2: 2, 3: 1, 4: 2, 5: 0, 6: 1, 7: 1}
 
-  P2 Information:
+  GTO Information:
     Total cards: 6
     Bluffed times: 10
     Honest: 1
 
-  P3 Information:
+  User Information:
     Total cards: 10
     Bluffed times: 0
     Honest: 11
@@ -145,8 +145,8 @@ Q5: Is your turn. Your available cards are {'A': 0, 2: 2, 3: 1, 4: 2, 5: 0, 6: 1
 A5:
   Step 1: I have 0 + 2 + 1 + 2 + 1 + 1 = 7 cards.
   Step 2: 2 cards of type 4 is enough to win.
-  Step 3: P2 is close to win.
-  Step 4: Telling the truth is enoug to win.
+  Step 3: GTO is close to win.
+  Step 4: Telling the truth is enough to win.
   Answer: 2 real
 """
     def call_chatgpt(self, conversation_history):
@@ -162,33 +162,33 @@ A5:
         except Exception as e:
             print("LLM API error:", e)
             return "Step 1: ... Step 2: ... Step 3: ... Step 4: ... Answer: 1 real"
-    def play(self, p2_total, p2_bluffs, p2_honest, p3_total, p3_bluffs, p3_honest, round_card, player_turn, player_claim=None):
+    def play(self, gto_total, gto_bluffs, gto_honest, user_total, user_bluffs, user_honest, round_card, player_turn, player_claim=None):
         if player_turn != "GPT":
             prompt = f"""Is not your turn. Your available cards are {self.cards}
 
-P2 Information:
-  Total cards: {p2_total}
-  Bluffed times: {p2_bluffs}
-  Honest: {p2_honest}
+GTO Information:
+  Total cards: {gto_total}
+  Bluffed times: {gto_bluffs}
+  Honest: {gto_honest}
 
-P3 Information:
-  Total cards: {p3_total}
-  Bluffed times: {p3_bluffs}
-  Honest: {p3_honest}
+User Information:
+  Total cards: {user_total}
+  Bluffed times: {user_bluffs}
+  Honest: {user_honest}
 
 Round card type is {round_card}, {player_turn} claims to have {player_claim} card(s) of type {round_card}."""
         else:
             prompt = f"""It is your turn. Your available cards are {self.cards}
 
-P2 Information:
-  Total cards: {p2_total}
-  Bluffed times: {p2_bluffs}
-  Honest: {p2_honest}
+GTO Information:
+  Total cards: {gto_total}
+  Bluffed times: {gto_bluffs}
+  Honest: {gto_honest}
 
-P3 Information:
-  Total cards: {p3_total}
-  Bluffed times: {p3_bluffs}
-  Honest: {p3_honest}
+User Information:
+  Total cards: {user_total}
+  Bluffed times: {user_bluffs}
+  Honest: {user_honest}
 
 Round card type is {round_card}. It is your turn to play. Answer in the format: 
   Step 1: ...
@@ -201,6 +201,29 @@ Round card type is {round_card}. It is your turn to play. Answer in the format:
         print("LLM Prompt:", prompt)
         response = self.call_chatgpt(conversation_history)
         return response
+user = "User"
+bluff_count = {"GPT": 0, "GTO": 0, user: 0}
+honest_count = {"GPT": 0, "GTO": 0, user: 0}
+
+
+def update_llm_cards():
+    counts = {'A': 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0}
+    
+    for card in player_hands["GPT"]:
+        # Convert numerical values to integers if necessary
+        if isinstance(card, str) and card.isdigit():
+            card = int(card)
+        elif isinstance(card, str) and card.upper() == 'A':  # Handle Ace as 'A'
+            card = 'A'
+
+        # Ensure the card exists in the dictionary before incrementing
+        if card in counts:
+            counts[card] += 1
+        else:
+            print(f"Warning: Unexpected card value '{card}' in GPT's hand")
+
+    llm_player.cards = counts  # Update GPT's known card counts
+
 
 # Create an instance of LLM_player for "GPT".
 llm_player = LLM_player(API_KEY)
@@ -225,7 +248,7 @@ pile_font = pygame.font.Font("Minecraft.ttf", 40)
 claim_font = pygame.font.Font("PressStart2P.ttf", 15)
 
 RANKS = ["A", "2", "3", "4", "5", "6", "7"]
-user = "You"
+
 
 player_positions = {
     user: (WIDTH // 2, HEIGHT - 100),
@@ -290,16 +313,22 @@ def bot_move(bot_name):
             selected_cards.append(card)
         for c in selected_cards:
             pile.append(c)
+        is_bluff = card != RANKS[current_rank_index]
+        if is_bluff:
+            bluff_count["GTO"] += 1
+        else:
+            honest_count["GTO"] += 1
         return f"{bot_name} claims to play {play_count} cards of {RANKS[current_rank_index]}", selected_cards
     else:
-        p2_total = len(player_hands["GTO"])
-        p2_bluffs = 0
-        p2_honest = 0
-        p3_total = len(player_hands["GPT"])
-        p3_bluffs = 0
-        p3_honest = 0
+        gto_total = len(player_hands["GTO"])
+        gto_bluffs = bluff_count["GTO"]
+        gto_honest = honest_count["GTO"]
+        user_total = len(player_hands[user])
+        user_bluffs = bluff_count[user]
+        user_honest = honest_count["GTO"]
         round_card = RANKS[current_rank_index]
-        llm_response = llm_player.play(p2_total, p2_bluffs, p2_honest, p3_total, p3_bluffs, p3_honest,
+        llm_player = LLM_player(API_KEY, cards = hand)
+        llm_response = llm_player.play(gto_total, gto_bluffs, gto_honest, user_total, user_bluffs, user_honest,
                                        round_card, "GPT")
         global llm_cot_reasoning_global
         try:
@@ -418,6 +447,14 @@ while running:
                         if selected_indices:
                             selected_cards = [user_hand[i] for i in sorted(selected_indices)]
                             claim_msg = f"You claim to play {len(selected_cards)} cards of {RANKS[current_rank_index]}"
+
+                            is_bluff = any(card != RANKS[current_rank_index] for card in selected_cards)
+        
+                            if is_bluff:
+                                bluff_count[user] += 1
+                            else:
+                                honest_count[user] += 1
+
                             for idx in sorted(selected_indices, reverse=True):
                                 card = user_hand.pop(idx)
                                 pile.append(card)
@@ -461,14 +498,15 @@ while running:
     current_player = turn_order[current_turn_index]
     if not call_phase and current_player != user and not call_resolved_time:
         if current_player == "GPT":
-            p2_total = len(player_hands["GTO"])
-            p2_bluffs = 0
-            p2_honest = 0
-            p3_total = len(player_hands["GPT"])
-            p3_bluffs = 0
-            p3_honest = 0
+            update_llm_cards()
+            gto_total = len(player_hands["GTO"])
+            gto_bluffs = bluff_count["GTO"]
+            gto_honest = honest_count["GTO"]
+            user_total = len(player_hands[user])
+            user_bluffs = bluff_count[user]
+            user_honest = honest_count[user]
             round_card = RANKS[current_rank_index]
-            llm_response = llm_player.play(p2_total, p2_bluffs, p2_honest, p3_total, p3_bluffs, p3_honest,
+            llm_response = llm_player.play(gto_total, gto_bluffs, gto_honest, user_total, user_bluffs, user_honest,
                                            round_card, "GPT")
             try:
                 parts = llm_response.split("Answer:")
