@@ -163,47 +163,37 @@ A5:
             print("LLM API error:", e)
             return "Step 1: ... Step 2: ... Step 3: ... Step 4: ... Answer: 1 real"
     def play(self, gto_total, gto_bluffs, gto_honest, user_total, user_bluffs, user_honest, round_card, player_turn, player_claim=None):
-        if player_turn != "GPT":
-            prompt = f"""Is not your turn. Your available cards are {self.cards}
+        if player_turn == "GPT":
+            prompt = f"""It is your turn to play. You are GPT.
+        Your available cards are: {self.cards}
+        The current round card type is: {round_card}
 
-GTO Information:
-  Total cards: {gto_total}
-  Bluffed times: {gto_bluffs}
-  Honest: {gto_honest}
+        IMPORTANT:
+        - You must decide how many cards to play.
+        - If you have cards that match the round card type, you may choose to play truthfully (output "real").
+        - Otherwise, you may bluff (output "bluff").
+        - DO NOT consider or mention any information about the other players.
+        - Your answer must be in the following format (with at least 1 card):
+            Answer: <number> <real or bluff>
 
-User Information:
-  Total cards: {user_total}
-  Bluffed times: {user_bluffs}
-  Honest: {user_honest}
+        Think step by step, but focus only on your own cards and the expected card type."""
 
-Round card type is {round_card}, {player_turn} claims to have {player_claim} card(s) of type {round_card}."""
-        else:
-            prompt = f"""It is your turn. Your available cards are {self.cards}
-
-GTO Information:
-  Total cards: {gto_total}
-  Bluffed times: {gto_bluffs}
-  Honest: {gto_honest}
-
-User Information:
-  Total cards: {user_total}
-  Bluffed times: {user_bluffs}
-  Honest: {user_honest}
-
-Round card type is {round_card}. It is your turn to play. Answer in the format: 
-  Step 1: ...
-  Step 2: ...
-  Step 3: ...
-  Step 4: ...
-  Answer: <number> <bluff or real>"""
         conversation_history = [{"role": "system", "content": self.initial_prompt},
                                 {"role": "user", "content": prompt}]
         print("LLM Prompt:", prompt)
         response = self.call_chatgpt(conversation_history)
         return response
+
+
 user = "User"
 bluff_count = {"GPT": 0, "GTO": 0, user: 0}
 honest_count = {"GPT": 0, "GTO": 0, user: 0}
+
+user_play_delay_start = None
+user_play_delay_duration = 3000  # milliseconds (3 seconds)
+
+bot_call_delay_start = None
+bot_call_delay_duration = 3000  
 
 
 def update_llm_cards():
@@ -290,6 +280,20 @@ play_button_rect = pygame.Rect(button_x, button_y, button_width, button_height)
 call_button_rect = pygame.Rect(button_x + button_width + 10, button_y, button_width, button_height)
 no_call_button_rect = pygame.Rect(button_x + 2 * (button_width + 10), button_y, button_width, button_height)
 
+
+def card_value(card):
+    # If card is an integer, look up its string in RANKS.
+    if isinstance(card, int):
+        return RANKS[card]
+    # If it's a digit in string form, convert to int and then look up.
+    elif isinstance(card, str) and card.isdigit():
+        return RANKS[int(card)]
+    # If it's a string and not a digit, assume it's already in the correct format.
+    else:
+        return card.upper()  # Convert Ace to "A" if needed.
+
+
+
 def draw_button(rect, text, pressed_time):
     current_time = pygame.time.get_ticks()
     color = (200, 200, 200) if pressed_time and current_time - pressed_time < highlight_duration else GRAY
@@ -304,21 +308,32 @@ def bot_move(bot_name):
     if not hand:
         return f"{bot_name} has no cards left.", []
     if bot_name == "GTO":
-        card = random.choice(hand)
-        count = hand.count(card)
-        play_count = random.randint(1, count)
-        selected_cards = []
-        for _ in range(play_count):
-            hand.remove(card)
-            selected_cards.append(card)
-        for c in selected_cards:
-            pile.append(c)
-        is_bluff = card != RANKS[current_rank_index]
-        if is_bluff:
-            bluff_count["GTO"] += 1
-        else:
+        round_card = RANKS[current_rank_index]
+        # Check if GTO has any cards matching the expected rank
+        truthful_cards = [card for card in hand if card_value(card) == round_card]
+        if truthful_cards:
+            # Choose a random number (at least 1) from the truthful cards
+            play_count = random.randint(1, len(truthful_cards))
+            selected_cards = random.sample(truthful_cards, play_count)
+            for card in selected_cards:
+                hand.remove(card)
+                pile.append(card)
             honest_count["GTO"] += 1
-        return f"{bot_name} claims to play {play_count} cards of {RANKS[current_rank_index]}", selected_cards
+            return f"GTO claims to play {play_count} cards of {round_card}", selected_cards
+        else:
+            # If no matching card, fallback to bluffing
+            card = random.choice(hand)
+            count = hand.count(card)
+            play_count = random.randint(1, count)
+            selected_cards = []
+            for _ in range(play_count):
+                hand.remove(card)
+                selected_cards.append(card)
+            for c in selected_cards:
+                pile.append(c)
+            bluff_count["GTO"] += 1
+            return f"GTO claims to play {play_count} cards of {round_card}", selected_cards
+
     else:
         gto_total = len(player_hands["GTO"])
         gto_bluffs = bluff_count["GTO"]
@@ -334,13 +349,21 @@ def bot_move(bot_name):
         try:
             parts = llm_response.split("Answer:")
             llm_cot_reasoning_global = parts[0].strip()
-            final_answer = parts[1].strip()  # e.g., "2 bluff" or "3 real"
-            num_cards = int(final_answer.split()[0])
+            final_answer = parts[1].strip()  # Expected to be something like "2 real" or "4 bluff"
+            parsed = final_answer.split()
+            num_cards = int(parsed[0])
+            llm_play_honesty = parsed[1].lower() if len(parsed) > 1 else "bluff"
+            print("DEBUG: Parsed final answer:", final_answer)
+            print("DEBUG: Declared honesty:", llm_play_honesty)
+            if num_cards < 1:
+                num_cards = 1
         except Exception as e:
             print("LLM parsing error:", e)
             llm_cot_reasoning_global = ""
             num_cards = 1
+            llm_play_honesty = "real"
             final_answer = "1 real"
+
         selected_cards = []
         available = hand[:]
         random.shuffle(available)
@@ -354,7 +377,10 @@ def bot_move(bot_name):
         return claim_str, selected_cards, llm_cot_reasoning_global
 
 def bot_call_decision(bot_name):
-    return random.random() < 0.3
+    if bot_name == "GTO":
+        return random.random() < 0.1 
+    else:
+        return random.random() < 0.3
 
 def collect_call_decisions():
     for p in turn_order:
@@ -387,7 +413,16 @@ def split_pile_among(players_list):
 
 def resolve_call():
     global last_played, call_decisions, last_claimant, current_rank_index
-    bluff = any(card != current_rank_index for card in last_played)
+    expected = RANKS[current_rank_index]
+    played_converted = [card_value(card) for card in last_played]
+    
+    # If GPT declared its move as real, we might want to force truthful.
+    # (Assuming you have a global variable llm_play_honesty set accordingly.)
+    if last_claimant == "GPT" and globals().get("llm_play_honesty", "bluff") == "real":
+        bluff = False
+    else:
+        bluff = any(card_value(card) != expected for card in last_played)
+    
     any_called = any(decision for decision in call_decisions.values())
     if bluff:
         if not any_called:
@@ -409,6 +444,7 @@ def resolve_call():
     last_played.clear()
     last_claimant = None
     return outcome
+
 
 llm_cot_reasoning_global = ""  # Global variable for storing GPT's CoT reasoning.
 
@@ -448,7 +484,7 @@ while running:
                             selected_cards = [user_hand[i] for i in sorted(selected_indices)]
                             claim_msg = f"You claim to play {len(selected_cards)} cards of {RANKS[current_rank_index]}"
 
-                            is_bluff = any(card != RANKS[current_rank_index] for card in selected_cards)
+                            is_bluff = any(card_value(card) != RANKS[current_rank_index] for card in selected_cards)
         
                             if is_bluff:
                                 bluff_count[user] += 1
@@ -463,6 +499,8 @@ while running:
                             last_claimant = user
                             call_phase = True
                             call_decisions = {}
+                            user_play_delay_start = pygame.time.get_ticks()
+
                     else:
                         for rect, idx in card_rects:
                             if rect.collidepoint(mouse_pos):
@@ -473,22 +511,41 @@ while running:
                                 break
 
     if call_phase:
-        if collect_call_decisions():
-            if last_claimant == "GPT":
-                if call_resolved_time is None:
-                    call_resolved_time = pygame.time.get_ticks()
-                elif pygame.time.get_ticks() - call_resolved_time >= call_resolution_delay:
-                    outcome_msg = resolve_call()
-                    claim_msg = outcome_msg
-                    call_phase = False
-                    call_resolved_time = pygame.time.get_ticks()
-                    call_decisions.clear()
+        if last_claimant == user:
+            # Always update the call decisions so they are visible.
+            collect_call_decisions()
+            current_time = pygame.time.get_ticks()
+            if user_play_delay_start is not None and (current_time - user_play_delay_start) < user_play_delay_duration:
+                # Delay not yet passed; simply wait (the call decisions will be drawn).
+                pass
             else:
                 outcome_msg = resolve_call()
                 claim_msg = outcome_msg
                 call_phase = False
                 call_resolved_time = pygame.time.get_ticks()
                 call_decisions.clear()
+                user_play_delay_start = None
+        else:
+            # For non-user turns, process as before.
+            if collect_call_decisions():
+                if last_claimant == "GPT":
+                    if call_resolved_time is None:
+                        call_resolved_time = pygame.time.get_ticks()
+                    elif pygame.time.get_ticks() - call_resolved_time >= call_resolution_delay:
+                        outcome_msg = resolve_call()
+                        claim_msg = outcome_msg
+                        call_phase = False
+                        call_resolved_time = pygame.time.get_ticks()
+                        call_decisions.clear()
+                else:
+                    outcome_msg = resolve_call()
+                    claim_msg = outcome_msg
+                    call_phase = False
+                    call_resolved_time = pygame.time.get_ticks()
+                    call_decisions.clear()
+
+
+
 
     if call_resolved_time and not call_phase and pygame.time.get_ticks() - call_resolved_time >= call_resolution_delay and last_claimant != "GPT":
         call_resolved_time = None
@@ -507,32 +564,57 @@ while running:
             user_honest = honest_count[user]
             round_card = RANKS[current_rank_index]
             llm_response = llm_player.play(gto_total, gto_bluffs, gto_honest, user_total, user_bluffs, user_honest,
-                                           round_card, "GPT")
+                                        round_card, "GPT")
             try:
                 parts = llm_response.split("Answer:")
                 llm_cot_reasoning_global = parts[0].strip()
-                final_answer = parts[1].strip()  # e.g., "2 bluff" or "3 real"
-                num_cards = int(final_answer.split()[0])
+                final_answer = parts[1].strip()  # Expected to be something like "2 real" or "4 bluff"
+                parsed = final_answer.split()
+                num_cards = int(parsed[0])
+                llm_play_honesty = parsed[1].lower() if len(parsed) > 1 else "bluff"
+                print("DEBUG: Parsed final answer:", final_answer)
+                print("DEBUG: Declared honesty:", llm_play_honesty)
+                if num_cards < 1:
+                    num_cards = 1
             except Exception as e:
                 print("LLM parsing error:", e)
                 llm_cot_reasoning_global = ""
                 num_cards = 1
+                llm_play_honesty = "real"
                 final_answer = "1 real"
+
+            
             hand = player_hands["GPT"]
-            available = hand[:]
-            random.shuffle(available)
-            num_cards = min(num_cards, len(available))
             selected_cards = []
-            for _ in range(num_cards):
-                card = available.pop()
-                hand.remove(card)
-                selected_cards.append(card)
-                pile.append(card)
+            # If GPT declared its move as truthful, filter the hand to only include cards matching the expected rank.
+            if llm_play_honesty == "real":
+                truthful_cards = [card for card in hand if card_value(card) == round_card]
+                print("DEBUG: Truthful cards available:", truthful_cards)
+                if len(truthful_cards) < num_cards:
+                    num_cards = len(truthful_cards) if truthful_cards else 1
+                print("DEBUG: Number of cards to play (truthful):", num_cards)
+                selected_cards = random.sample(truthful_cards, num_cards) if truthful_cards else []
+                for card in selected_cards:
+                    hand.remove(card)
+                    pile.append(card)
+
+            else:
+                # Bluffing branch: select randomly from the entire hand.
+                available = hand[:]
+                random.shuffle(available)
+                num_cards = min(num_cards, len(available))
+                for _ in range(num_cards):
+                    card = available.pop()
+                    hand.remove(card)
+                    selected_cards.append(card)
+                    pile.append(card)
+            
             claim_msg = f"GPT claims to play {num_cards} cards of {round_card}"
             last_played = selected_cards[:]
             last_claimant = "GPT"
             call_phase = True
             call_decisions = {}
+
         else:
             msg, played = bot_move(current_player)
             claim_msg = msg
@@ -558,7 +640,7 @@ while running:
         if p != last_claimant and p in call_decisions:
             decision_str = "Call" if call_decisions[p] else "No Call"
             pos = player_positions[p]
-            offset = (0, 100) if pos[1] < HEIGHT/2 else (0, -100)
+            offset = (0, 120) if pos[1] < HEIGHT/2 else (0, -120)
             dt = font_small.render(decision_str, True, BLACK)
             dr = dt.get_rect(center=(pos[0] + offset[0], pos[1] + offset[1]))
             screen.blit(dt, dr)
@@ -569,12 +651,7 @@ while running:
         pos = player_positions[name]
         tr = ts.get_rect(center=(pos[0], pos[1] + 80))
         screen.blit(ts, tr)
-    
-    # user_count = len(player_hands[user])
-    # user_count_text = font_small.render(f"#: {user_count} cards", True, WHITE)
-    # user_count_rect = user_count_text.get_rect(center=(10, HEIGHT - 40))
-    # screen.blit(user_count_text, user_count_rect)
-    
+        
     x_offset = WIDTH // 2 - (len(user_hand) * (card_w + 5)) // 2
     y_position = HEIGHT - 250
     for idx, card in enumerate(user_hand):
@@ -590,7 +667,7 @@ while running:
     
     pile_radius = 90
     pile_x = WIDTH // 2
-    pile_y = HEIGHT // 2 - 75
+    pile_y = HEIGHT // 2 - 70
     pygame.draw.circle(screen, CARD_BACK_COLOR, (pile_x, pile_y), pile_radius)
     pygame.draw.circle(screen, BLACK, (pile_x, pile_y), pile_radius, 2)
     pile_count = len(pile)
@@ -600,16 +677,18 @@ while running:
     
     if claim_msg:
         cs = claim_font.render(claim_msg, True, WHITE)
-        cr = cs.get_rect(center=(WIDTH//2, HEIGHT//2 - 200))
+        cr = cs.get_rect(center=(WIDTH//2, HEIGHT//2 - 195))
         screen.blit(cs, cr)
     
     # Display GPT's chain-of-thought reasoning under its circle,
     # but only after both other players have made their call decision.
     if last_claimant == "GPT" and call_resolved_time is not None:
+        print("DEBUG: Rendering GPT's CoT reasoning. Last claimant =", last_claimant)
+        print("DEBUG: CoT reasoning:", llm_cot_reasoning_global)
         pos = player_positions["GPT"]
         # Adjust the x-coordinate: subtract an offset (e.g., 150 pixels) to move text left.
         cot_x = pos[0] - 150  
-        cot_y = pos[1] + 80  # Starting y-coordinate for the CoT text
+        cot_y = pos[1] + 100  # Starting y-coordinate for the CoT text
         max_chars_per_line = 30  # Adjust this value as needed
 
         for line in llm_cot_reasoning_global.split("\n"):
