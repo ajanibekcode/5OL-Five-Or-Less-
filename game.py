@@ -1,4 +1,6 @@
 import pygame, random, sys, openai, textwrap
+from math import comb
+from scipy.stats import hypergeom
 from utils import create_deck, distribute_cards
 
 pygame.init()
@@ -175,6 +177,7 @@ A5:
         - DO NOT consider or mention any information about the other players.
         - Your answer must be in the following format (with at least 1 card):
             Answer: <number> <real or bluff>
+        - Also, include your chain-of-thought reasoning (step-by-step) before the final answer.
 
         Think step by step, but focus only on your own cards and the expected card type."""
 
@@ -200,19 +203,29 @@ def update_llm_cards():
     counts = {'A': 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0}
     
     for card in player_hands["GPT"]:
-        # Convert numerical values to integers if necessary
-        if isinstance(card, str) and card.isdigit():
-            card = int(card)
-        elif isinstance(card, str) and card.upper() == 'A':  # Handle Ace as 'A'
-            card = 'A'
+        # Convert cards to the expected keys:
+        if isinstance(card, int):
+            # If the card is 0, treat it as Ace ('A'); otherwise, add 1.
+            key = 'A' if card == 0 else card + 1
+        elif isinstance(card, str):
+            # If it's a string digit, convert to int and then adjust (0 becomes 'A' etc.)
+            if card.isdigit():
+                num = int(card)
+                key = 'A' if num == 0 else num + 1
+            elif card.upper() == 'A':
+                key = 'A'
+            else:
+                key = card.upper()
+        else:
+            key = card
 
-        # Ensure the card exists in the dictionary before incrementing
-        if card in counts:
-            counts[card] += 1
+        if key in counts:
+            counts[key] += 1
         else:
             print(f"Warning: Unexpected card value '{card}' in GPT's hand")
 
     llm_player.cards = counts  # Update GPT's known card counts
+    print("DEBUG: Updated GPT's card counts:", counts)
 
 
 # Create an instance of LLM_player for "GPT".
@@ -239,7 +252,8 @@ claim_font = pygame.font.Font("PressStart2P.ttf", 15)
 
 RANKS = ["A", "2", "3", "4", "5", "6", "7"]
 
-
+NUM_RANKS = 7
+FREQ_RANK = 6
 player_positions = {
     user: (WIDTH // 2, HEIGHT - 100),
     "GTO": (100, 100),
@@ -325,7 +339,7 @@ def bot_move(bot_name):
                 # 25% probability: attempt to bluff even though truthful cards are available
                 bluff_cards = [card for card in hand if card_value(card) != round_card]
                 if bluff_cards:
-                    play_count = random.randint(1, len(bluff_cards))
+                    play_count = random.randint(1, min(6, hand.count(card)))
                     selected_cards = random.sample(bluff_cards, play_count)
                     for card in selected_cards:
                         hand.remove(card)
@@ -344,8 +358,7 @@ def bot_move(bot_name):
         else:
             # If no matching card, fallback to bluffing
             card = random.choice(hand)
-            count = hand.count(card)
-            play_count = random.randint(1, count)
+            play_count = random.randint(1, min(6, hand.count(card)))
             selected_cards = []
             for _ in range(play_count):
                 hand.remove(card)
@@ -362,7 +375,7 @@ def bot_move(bot_name):
         gto_honest = honest_count["GTO"]
         user_total = len(player_hands[user])
         user_bluffs = bluff_count[user]
-        user_honest = honest_count["GTO"]
+        user_honest = honest_count[user]
         round_card = RANKS[current_rank_index]
         llm_player = LLM_player(API_KEY, cards = hand)
         llm_response = llm_player.play(gto_total, gto_bluffs, gto_honest, user_total, user_bluffs, user_honest,
@@ -375,8 +388,8 @@ def bot_move(bot_name):
             parsed = final_answer.split()
             num_cards = int(parsed[0])
             llm_play_honesty = parsed[1].lower() if len(parsed) > 1 else "bluff"
-            print("DEBUG: Parsed final answer:", final_answer)
-            print("DEBUG: Declared honesty:", llm_play_honesty)
+            # print("DEBUG: Parsed final answer:", final_answer)
+            # print("DEBUG: Declared honesty:", llm_play_honesty)
             if num_cards < 1:
                 num_cards = 1
         except Exception as e:
@@ -399,10 +412,51 @@ def bot_move(bot_name):
         return claim_str, selected_cards, llm_cot_reasoning_global
 
 def bot_call_decision(bot_name):
-    if len(last_played) > 6:
-        return True
+
+    # For GTO, use the hypergeometric-based call decision logic.
     if bot_name == "GTO":
-        return random.random() < 0.1 
+        claimed_rank = RANKS[current_rank_index]
+        my_count = sum(1 for card in player_hands["GTO"] if card_value(card) == claimed_rank)
+        if len(last_played) + my_count > 6:
+            return True
+        # Bet is assumed to be the number of cards played.
+        bet = len(last_played)
+        # Pot size is the current size of the pile.
+        pot_size = len(pile)
+        
+        # If my_count + bet exceeds the available number of that card, it’s impossible – call.
+        if my_count + bet > FREQ_RANK:
+            return True
+
+        # Set up the hypergeometric parameters.
+        unknown = 42  # total number of cards in the deck
+        players = 3
+        draws = len(player_hands[last_claimant]) + bet
+        
+        # The number of copies remaining of the claimed rank (not in GTO's hand)
+        remaining = FREQ_RANK - my_count
+
+        rv = hypergeom(unknown, remaining, draws)
+        calling_freq = 0.0
+        
+        # Accumulate probability for holds in the range 0 to bet-1
+        for holds in range(0, bet):
+            calling_freq += (rv.pmf(holds) * (bet - holds) / (pot_size + bet))
+        
+        cdf_val = rv.cdf(bet)
+        if cdf_val > 0:
+            calling_freq /= cdf_val
+        else:
+            calling_freq = 1.0
+        
+        # For debugging, you might print out the computed frequency:
+        print("DEBUG: GTO call probability:", calling_freq)
+        
+        return random.random() < calling_freq
+    else:
+        # For other players, you can keep the default calling probability.
+        return random.random() < 0.3
+
  
 
 def collect_call_decisions():
@@ -478,13 +532,24 @@ while running:
     player_hands[user].sort()
     user_hand = player_hands[user]
     card_w, card_h = 60, 90
-    x_offset = WIDTH // 2 - (len(user_hand) * (card_w + 5)) // 2 
+    margin = 50  # margin from the edge of the screen
+    available_width = WIDTH - margin
+    num_cards = len(user_hand)
+
+    ideal_spacing = card_w + 5
+    spacing = ideal_spacing
+    if num_cards * ideal_spacing > available_width:
+        spacing = available_width / num_cards
+
+    # Center the hand horizontally.
+    x_offset = WIDTH // 2 - int(num_cards * spacing) // 2
     y_position = HEIGHT - 250
     card_rects = []
     for idx, card in enumerate(user_hand):
         rect = pygame.Rect(x_offset, y_position, card_w, card_h)
         card_rects.append((rect, idx))
-        x_offset += card_w + 5
+        x_offset += spacing
+
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -597,8 +662,8 @@ while running:
                 parsed = final_answer.split()
                 num_cards = int(parsed[0])
                 llm_play_honesty = parsed[1].lower() if len(parsed) > 1 else "bluff"
-                print("DEBUG: Parsed final answer:", final_answer)
-                print("DEBUG: Declared honesty:", llm_play_honesty)
+                # print("DEBUG: Parsed final answer:", final_answer)
+                # print("DEBUG: Declared honesty:", llm_play_honesty)
                 if num_cards < 1:
                     num_cards = 1
             except Exception as e:
@@ -614,10 +679,10 @@ while running:
             # If GPT declared its move as truthful, filter the hand to only include cards matching the expected rank.
             if llm_play_honesty == "real":
                 truthful_cards = [card for card in hand if card_value(card) == round_card]
-                print("DEBUG: Truthful cards available:", truthful_cards)
+                # print("DEBUG: Truthful cards available:", truthful_cards)
                 if len(truthful_cards) < num_cards:
                     num_cards = len(truthful_cards) if truthful_cards else 1
-                print("DEBUG: Number of cards to play (truthful):", num_cards)
+                # print("DEBUG: Number of cards to play (truthful):", num_cards)
                 selected_cards = random.sample(truthful_cards, num_cards) if truthful_cards else []
                 for card in selected_cards:
                     hand.remove(card)
@@ -647,6 +712,7 @@ while running:
             last_claimant = current_player
             call_phase = True
             call_decisions = {}
+
 
     screen.fill(GREEN)
     
@@ -708,8 +774,8 @@ while running:
     # Display GPT's chain-of-thought reasoning under its circle,
     # but only after both other players have made their call decision.
     if last_claimant == "GPT" and call_resolved_time is not None:
-        print("DEBUG: Rendering GPT's CoT reasoning. Last claimant =", last_claimant)
-        print("DEBUG: CoT reasoning:", llm_cot_reasoning_global)
+        # print("DEBUG: Rendering GPT's CoT reasoning. Last claimant =", last_claimant)
+        # print("DEBUG: CoT reasoning:", llm_cot_reasoning_global)
         pos = player_positions["GPT"]
         # Adjust the x-coordinate: subtract an offset (e.g., 150 pixels) to move text left.
         cot_x = pos[0] - 150  
