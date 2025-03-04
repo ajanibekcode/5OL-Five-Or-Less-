@@ -312,14 +312,35 @@ def bot_move(bot_name):
         # Check if GTO has any cards matching the expected rank
         truthful_cards = [card for card in hand if card_value(card) == round_card]
         if truthful_cards:
-            # Choose a random number (at least 1) from the truthful cards
-            play_count = random.randint(1, len(truthful_cards))
-            selected_cards = random.sample(truthful_cards, play_count)
-            for card in selected_cards:
-                hand.remove(card)
-                pile.append(card)
-            honest_count["GTO"] += 1
-            return f"GTO claims to play {play_count} cards of {round_card}", selected_cards
+            if random.random() < 0.75:
+                # 75% probability: play truthfully
+                play_count = random.randint(1, len(truthful_cards))
+                selected_cards = random.sample(truthful_cards, play_count)
+                for card in selected_cards:
+                    hand.remove(card)
+                    pile.append(card)
+                honest_count["GTO"] += 1
+                return f"GTO claims to play {play_count} cards of {round_card}", selected_cards
+            else:
+                # 25% probability: attempt to bluff even though truthful cards are available
+                bluff_cards = [card for card in hand if card_value(card) != round_card]
+                if bluff_cards:
+                    play_count = random.randint(1, len(bluff_cards))
+                    selected_cards = random.sample(bluff_cards, play_count)
+                    for card in selected_cards:
+                        hand.remove(card)
+                        pile.append(card)
+                    bluff_count["GTO"] += 1
+                    return f"GTO claims to play {play_count} cards of {round_card}", selected_cards
+                else:
+                    # If no bluff cards available, fall back to truthful play.
+                    play_count = random.randint(1, len(truthful_cards))
+                    selected_cards = random.sample(truthful_cards, play_count)
+                    for card in selected_cards:
+                        hand.remove(card)
+                        pile.append(card)
+                    honest_count["GTO"] += 1
+                    return f"GTO claims to play {play_count} cards of {round_card}", selected_cards
         else:
             # If no matching card, fallback to bluffing
             card = random.choice(hand)
@@ -333,6 +354,7 @@ def bot_move(bot_name):
                 pile.append(c)
             bluff_count["GTO"] += 1
             return f"GTO claims to play {play_count} cards of {round_card}", selected_cards
+
 
     else:
         gto_total = len(player_hands["GTO"])
@@ -377,10 +399,11 @@ def bot_move(bot_name):
         return claim_str, selected_cards, llm_cot_reasoning_global
 
 def bot_call_decision(bot_name):
+    if len(last_played) > 6:
+        return True
     if bot_name == "GTO":
         return random.random() < 0.1 
-    else:
-        return random.random() < 0.3
+ 
 
 def collect_call_decisions():
     for p in turn_order:
@@ -415,13 +438,15 @@ def resolve_call():
     global last_played, call_decisions, last_claimant, current_rank_index
     expected = RANKS[current_rank_index]
     played_converted = [card_value(card) for card in last_played]
-    
+    if len(last_played) > 6:
+        bluff = True
+    else:
     # If GPT declared its move as real, we might want to force truthful.
     # (Assuming you have a global variable llm_play_honesty set accordingly.)
-    if last_claimant == "GPT" and globals().get("llm_play_honesty", "bluff") == "real":
-        bluff = False
-    else:
-        bluff = any(card_value(card) != expected for card in last_played)
+        if last_claimant == "GPT" and globals().get("llm_play_honesty", "bluff") == "real":
+            bluff = False
+        else:
+            bluff = any(card_value(card) != expected for card in last_played)
     
     any_called = any(decision for decision in call_decisions.values())
     if bluff:
@@ -710,19 +735,21 @@ while running:
     clock.tick(60)
     
     winner = None
-    for p in turn_order:
-        if len(player_hands[p]) <= 5:
-            winner = p
-            break
-    if winner is not None:
-        claim_msg = f"Game Over: {winner} won!"
-        screen.fill(GREEN)
-        gs = claim_font.render(claim_msg, True, WHITE)
-        gr = gs.get_rect(center=(WIDTH//2, HEIGHT//2))
-        screen.blit(gs, gr)
-        pygame.display.flip()
-        pygame.time.delay(3000)
-        running = False
+    if not call_phase:
+        winner = None
+        for p in turn_order:
+            if len(player_hands[p]) <= 5:
+                winner = p
+                break
+        if winner is not None:
+            claim_msg = f"Game Over: {winner} won!"
+            screen.fill(GREEN)
+            gs = claim_font.render(claim_msg, True, WHITE)
+            gr = gs.get_rect(center=(WIDTH//2, HEIGHT//2))
+            screen.blit(gs, gr)
+            pygame.display.flip()
+            pygame.time.delay(3000)
+            running = False
 
 pygame.quit()
 sys.exit()
